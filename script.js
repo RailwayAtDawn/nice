@@ -9,7 +9,7 @@ var outputContext = outputCanvas.getContext('2d');
 const config = {
     kmeansClusterNum: 8,
     debug: true,
-    m: 10, // maximum movement distance of the remap function
+    m: 1, // maximum movement distance of the remap function
     vision: 'tritanopia',
     confusionLines: {
         protanopia: {
@@ -158,8 +158,8 @@ function angleFix(thetaUnfixed, triangularFunction) {
     let theta = thetaUnfixed
     if (checkAngleBoundaries(theta)) return [theta, true]
     else {
-        if (triangularFunction == 'sin') theta = Math.PI + theta
-        else if (triangularFunction == 'cos') theta = -theta
+        if (triangularFunction == 'sin') if(theta<0) theta = Math.PI + theta
+        else if (triangularFunction == 'cos') if(theta<0) theta = -theta
         else { log("<font color='pink'>Error: triangular function not recognized</font>"); return [114.514, false]}
         if (checkAngleBoundaries(theta)) return [theta, true]
     }
@@ -168,7 +168,7 @@ function angleFix(thetaUnfixed, triangularFunction) {
 }
 
 function colorCenterRemapping(centers) {
-    const centersRemapped = []
+    const centersRemapped = new Array(centers.length)
 
     centers.forEach(([u, v], index) => {
         const u_con = config.confusionLines[config.vision].u
@@ -183,15 +183,12 @@ function colorCenterRemapping(centers) {
             log(`<font color='pink'>Warning: theta calculated by asin and acos both out of range? index: ${index}</font>`)
         else if (sinRange) theta = thetaCos
         else if (cosRange) theta = thetaSin
-        centersRemapped.push([R, theta])
-        console.log(index)
-        console.log(centersRemapped)
+        centersRemapped[index] = {r:R, theta:theta}
     })
-
-    console.log(centersRemapped)
     
-    centersRemapped.forEach(([R, theta], index) => {
-        const remappedCenter = [R, theta]
+    centersRemapped.forEach((e, index) => {
+        const remappedCenter = [e.r, e.theta]
+        console.log(remappedCenter)
         const thetaPrimeV = config.confusionLines[config.vision].thetaPrimeV
         const thetaPrime0 = config.confusionLines[config.vision].thetaPrime0
         const thetaPrimeKadd1 = config.confusionLines[config.vision].thetaPrimeKadd1
@@ -203,9 +200,9 @@ function colorCenterRemapping(centers) {
                 Math.tan(thetaPrimeKadd1 - thetaPrimeV) +
                 Math.tan(thetaPrimeKsub1 - thetaPrimeV)
             ) + thetaPrimeV
-        const rightHandSide = theta + config.m
+        const rightHandSide = e.theta + config.m
         if (leftHandSide >= rightHandSide || leftHandSide <= rightHandSide) 
-            remappedCenter[1] = theta - config.m
+            remappedCenter[1] = e.theta - config.m
         else
             remappedCenter[1] = leftHandSide
         centersRemapped[index] = remappedCenter
