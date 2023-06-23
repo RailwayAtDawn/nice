@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Daltonization Algorithm</title>
+    <script src="https://cdn.jsdelivr.net/npm/ac-colors@1/dist/ac-colors.min.js"></script>
+    <script src="kmeans.js"></script>
+    <style>
+      body{
+        background-color: rgb(63, 63, 63);
+        color: white;
+      }
+      div.info{
+        margin: auto;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="inputCanvas"></canvas>
+    <canvas id="outputCanvas"></canvas>
+    <div class="info">
+      <input type="file" id="imageUpload" accept="image/*">
+      <div id="log"></div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>
