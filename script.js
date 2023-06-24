@@ -4,7 +4,7 @@ var imageUpload = document.getElementById('imageUpload');
 var inputCanvas = document.getElementById('inputCanvas');
 var inputContext = inputCanvas.getContext('2d', { willReadFrequently: true });
 var outputCanvas = document.getElementById('outputCanvas');
-var outputContext = outputCanvas.getContext('2d');
+var outputContext = outputCanvas.getContext('2d', { willReadFrequently: true });
 var inputCanvasColorblind = document.getElementById('inputCanvasColorblind');
 var inputContextColorblind = inputCanvasColorblind.getContext('2d');
 var outputCanvasColorblind = document.getElementById('outputCanvasColorblind');
@@ -14,6 +14,7 @@ var configElement = {
     vision: document.getElementById('vision'),
     debug: document.getElementById('debug'),
     m: document.getElementById('m'),
+    b: document.getElementById('b'),
     kmeansClusterNum: document.getElementById('kmeansClusterNum'),
     confirm: document.getElementById('confirm')
 }
@@ -23,8 +24,9 @@ var outputImageData = null;
 const config = {
     severity: 100,
     kmeansClusterNum: 16,
-    debug: true,
-    m: 0.6283185307179586476925286766559, // maximum movement distance of the remap function
+    debug: false,
+    m: Math.PI * 0.07, // maximum movement distance of the remap function
+    b: 0.3,
     vision: 'protanopia',
     confusionLines: {
         protanopia: {
@@ -78,6 +80,7 @@ function refreshConfig() {
     configElement.vision.value = config.vision
     configElement.debug.checked = config.debug
     configElement.m.value = config.m / Math.PI
+    configElement.b.value = config.b
     configElement.kmeansClusterNum.value = config.kmeansClusterNum
     if (config.debug)
         log("<font color='orange'>Debug on!</font>")
@@ -88,9 +91,13 @@ configElement.severity.addEventListener('change', e => {
     config.severity = e.target.value; refreshConfig();
     refreshColorblindness()
 })
-configElement.vision.addEventListener('change', e => { config.vision = e.target.value; refreshConfig() })
+configElement.vision.addEventListener('change', e => {
+    config.vision = e.target.value; refreshConfig();
+    refreshColorblindness()
+})
 configElement.debug.addEventListener('change', e => { config.debug = e.target.checked; refreshConfig() })
 configElement.m.addEventListener('change', e => { config.m = e.target.value * Math.PI; refreshConfig() })
+configElement.b.addEventListener('change', e => { config.b = e.target.value; refreshConfig() })
 configElement.kmeansClusterNum.addEventListener('change', e => { config.kmeansClusterNum = e.target.value; refreshConfig() })
 
 configElement.confirm.addEventListener('click', e => {
@@ -167,9 +174,9 @@ imageUpload.addEventListener('change', function(event) {
 function daltonization(imageData) {
     try {
         configElement.confirm.disabled = true
-        var [centers, clusters] = performColorClustering(imageData)
+        var [centers, clusters, rInformation] = performColorClustering(imageData)
         var centersRemapped = colorCenterRemapping(centers)
-        outputImage(imageData, clusters, centersRemapped)
+        outputImage(imageData, clusters, centersRemapped, rInformation)
         configElement.confirm.disabled = false
     } catch (e) {
         log("<font color='pink'>Error: " + e + "</font>")
@@ -202,8 +209,8 @@ function performColorClustering(imageData) {
     
         const [L, u, v] = rgbToLuv(r, g, b);
         output[i] = L
-        output[i + 1] = 114.514
-        output[i + 2] = 0
+        output[i + 1] = u
+        output[i + 2] = v
         output[i + 3] = 255
         luvPixels.push([u,v]); // we're only interested in u and v
     }
@@ -218,8 +225,25 @@ function performColorClustering(imageData) {
     
     const centers = kmeans.centroids
     const clusters = kmeans.clusters
+    const rInformation = {}
+    clusters.forEach((cluster, index) => {
+        rInformation[index] = { Ravg: 0, count: 0, Rmax: -Infinity, Rmin: Infinity }
+        cluster.forEach((e) => {
+            i = e * 4
+            const [L, u, v] = [output[i], output[i + 1], output[i + 2]]
+            const u_con = config.confusionLines[config.vision].u
+            const v_con = config.confusionLines[config.vision].v
+            const R = Math.sqrt((u - u_con) ** 2 + (v - v_con) ** 2)
+            rInformation[index].Ravg = (rInformation[index].Ravg * rInformation[index].count + R) / (rInformation[index].count + 1)
+            rInformation[index].count += 1
+            rInformation[index].Rmax = Math.max(rInformation[index].Rmax, R)
+            rInformation[index].Rmin = Math.min(rInformation[index].Rmin, R)
+            if (rInformation[index].Rmax > 100) console.log(R, Ravg, count)
+            if (rInformation[index].Rmin < 0) console.log(R, Ravg, count)
+        })
+    })
     log(`Cluster numbers: <font color='yellow'>${config.kmeansClusterNum}</font>`)
-	return [centers, clusters];
+    return [centers, clusters, rInformation];
 }
 
 
@@ -316,34 +340,43 @@ function colorCenterRemapping(centers) {
     return centersRemappedAgain
 }
 
-function outputImage(imageData, clusters, centers) {
+// Step 3: Lightness modification basd on R information
+
+function outputImage(imageData, clusters, centers, rInformation) {
     const data = imageData.data
+    let Lflag = false
     const output = new Uint8ClampedArray(data.length)
 
     log("<font color='orange'>Centers all done!</font>")
+    const u_con = config.confusionLines[config.vision].u
+    const v_con = config.confusionLines[config.vision].v
  
     for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
     
-        const L = (rgbToLuv(r, g, b))[0];
+        const [L, u, v] = rgbToLuv(r, g, b);
         output[i] = L
-        output[i + 1] = 114.514
-        output[i + 2] = 0
-        output[i + 3] = 255
+        output[i + 1] = 114.514 // error flag
+        output[i + 2] = Math.sqrt((u - u_con) ** 2 + (v - v_con) ** 2)  // Rij
+        output[i + 3] = data[i + 3] // alpha
     }
 
     clusters.forEach((cluster,index) => {
         cluster.forEach((e) => {
             i = e * 4
             var [L, u, v] = [output[i], centers[index][0], centers[index][1]]
+            L = L + config.b * (output[i + 2] - rInformation[index].Ravg) / (rInformation[index].Rmax - rInformation[index].Rmin)
+            if (L > 100) { L = 100, Lflag = true}
+            if (L < 0) { L = 0, Lflag = true }
             var rgb = luvToRgb(L, u, v)
             output[i] = rgb[0]
             output[i + 1] = rgb[1]
             output[i + 2] = rgb[2]
         })
     })
+    if (Lflag) log(`<font color='pink'>Warning: L out of range!</font>`)
     if (output.indexOf(114.514) != -1)
         log(`<font color='pink'>Error: did not find the corresponding center! Please check data.</font>`)
     const newImageData = new ImageData(output, imageData.width, imageData.height);
