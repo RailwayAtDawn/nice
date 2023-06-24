@@ -2,15 +2,30 @@
 /* eslint-disable no-undef*/
 var imageUpload = document.getElementById('imageUpload');
 var inputCanvas = document.getElementById('inputCanvas');
-var inputContext = inputCanvas.getContext('2d');
+var inputContext = inputCanvas.getContext('2d', { willReadFrequently: true });
 var outputCanvas = document.getElementById('outputCanvas');
 var outputContext = outputCanvas.getContext('2d');
+var inputCanvasColorblind = document.getElementById('inputCanvasColorblind');
+var inputContextColorblind = inputCanvasColorblind.getContext('2d');
+var outputCanvasColorblind = document.getElementById('outputCanvasColorblind');
+var outputContextColorblind = outputCanvasColorblind.getContext('2d');
+var configElement = {
+    severity: document.getElementById('severity'),
+    vision: document.getElementById('vision'),
+    debug: document.getElementById('debug'),
+    m: document.getElementById('m'),
+    kmeansClusterNum: document.getElementById('kmeansClusterNum'),
+    confirm: document.getElementById('confirm')
+}
+var loadedImageData = null;
+var outputImageData = null;
 
 const config = {
-    kmeansClusterNum: 8,
+    severity: 100,
+    kmeansClusterNum: 16,
     debug: true,
-    m: 1, // maximum movement distance of the remap function
-    vision: 'tritanopia',
+    m: 0.6283185307179586476925286766559, // maximum movement distance of the remap function
+    vision: 'protanopia',
     confusionLines: {
         protanopia: {
             u: 0.678,
@@ -58,8 +73,60 @@ const config = {
     }
 }
 
-if (config.debug)
-    log("<font color='orange'>Debug on!</font>")
+function refreshConfig() {
+    configElement.severity.value = config.severity
+    configElement.vision.value = config.vision
+    configElement.debug.checked = config.debug
+    configElement.m.value = config.m / Math.PI
+    configElement.kmeansClusterNum.value = config.kmeansClusterNum
+    if (config.debug)
+        log("<font color='orange'>Debug on!</font>")
+}
+
+refreshConfig()
+configElement.severity.addEventListener('change', e => {
+    config.severity = e.target.value; refreshConfig();
+    refreshColorblindness()
+})
+configElement.vision.addEventListener('change', e => { config.vision = e.target.value; refreshConfig() })
+configElement.debug.addEventListener('change', e => { config.debug = e.target.checked; refreshConfig() })
+configElement.m.addEventListener('change', e => { config.m = e.target.value * Math.PI; refreshConfig() })
+configElement.kmeansClusterNum.addEventListener('change', e => { config.kmeansClusterNum = e.target.value; refreshConfig() })
+
+configElement.confirm.addEventListener('click', e => {
+    if (!loadedImageData) {
+        log("<font color='pink'>Error: No image loaded!</font>")
+        return
+    }
+    daltonization(loadedImageData)
+    loadedImageData = inputContext.getImageData(0, 0, inputCanvas.width, inputCanvas.height);
+    outputImageData = outputContext.getImageData(0, 0, outputCanvas.width, outputCanvas.height);
+})
+
+function applyMatrix(rgb) { return getMachadoMatrix(config.vision, parseInt(config.severity, 10))(rgb); }
+function simulateColorblindness(imageData) {
+    var data = imageData.data;
+    for (var i = 0; i < data.length; i += 4) {
+        var rgb = [data[i], data[i + 1], data[i + 2]];
+        var matrix = applyMatrix(rgb);
+        data[i] = matrix[0];
+        data[i + 1] = matrix[1];
+        data[i + 2] = matrix[2];
+    }
+    return data;
+}
+function refreshColorblindness() {
+    if (loadedImageData) {
+        const colorblindImageData = new ImageData(simulateColorblindness(loadedImageData), loadedImageData.width, loadedImageData.height)
+        inputContextColorblind.putImageData(colorblindImageData, 0, 0)
+    }
+    if (outputImageData) {
+        const colorblindImageData = new ImageData(simulateColorblindness(outputImageData), outputImageData.width, outputImageData.height)
+        outputContextColorblind.putImageData(colorblindImageData, 0, 0)
+    }
+    loadedImageData = inputContext.getImageData(0, 0, inputCanvas.width, inputCanvas.height);
+    outputImageData = outputContext.getImageData(0, 0, outputCanvas.width, outputCanvas.height);
+}
 
 function log(entry) {
     var pLog = document.createElement("p")
@@ -79,14 +146,16 @@ imageUpload.addEventListener('change', function(event) {
 		image.onload = function () {
 			log("Image loaded: <font color='yellow'>"+image.width+"x"+image.height+"</font>")
 			inputCanvas.width = image.width;
-			inputCanvas.height = image.height;
-            inputContext.drawImage(image, 0, 0);
-            
+            inputCanvas.height = image.height;
             outputCanvas.width = image.width;
-			outputCanvas.height = image.height;
-
-            var imageData = inputContext.getImageData(0, 0, inputCanvas.width, inputCanvas.height);
-			daltonization(imageData)
+            outputCanvas.height = image.height;
+            inputCanvasColorblind.width = image.width;
+            inputCanvasColorblind.height = image.height;
+            outputCanvasColorblind.width = image.width;
+            outputCanvasColorblind.height = image.height;
+            inputContext.drawImage(image, 0, 0);
+            loadedImageData = inputContext.getImageData(0, 0, inputCanvas.width, inputCanvas.height);
+            refreshColorblindness()
 		};
 
 		image.src = e.target.result;
@@ -96,10 +165,12 @@ imageUpload.addEventListener('change', function(event) {
 });
 
 function daltonization(imageData) {
-    try{
+    try {
+        configElement.confirm.disabled = true
         var [centers, clusters] = performColorClustering(imageData)
         var centersRemapped = colorCenterRemapping(centers)
-        outputImage(imageData, centersRemapped, clusters)
+        outputImage(imageData, clusters, centersRemapped)
+        configElement.confirm.disabled = false
     } catch (e) {
         log("<font color='pink'>Error: " + e + "</font>")
         throw(e)
@@ -153,46 +224,70 @@ function performColorClustering(imageData) {
 
 
 // Step 2: Color center remapping
+/*
 function checkAngleBoundaries(theta) { return theta > config.preprocessAngleBoundaries[config.vision].lowTheta && theta < config.preprocessAngleBoundaries[config.vision].highTheta }
 function angleFix(thetaUnfixed, triangularFunction) {
     let theta = thetaUnfixed
+    if (theta < 0) theta += 2 * Math.PI
     if (checkAngleBoundaries(theta)) return [theta, true]
-    else {
-        if (triangularFunction == 'sin') if(theta<0) theta = Math.PI + theta
-        else if (triangularFunction == 'cos') if(theta<0) theta = -theta
-        else { log("<font color='pink'>Error: triangular function not recognized</font>"); return [114.514, false]}
-        if (checkAngleBoundaries(theta)) return [theta, true]
+    if (triangularFunction == 'sin')
+        if (theta < Math.PI) theta = Math.PI - theta
+        else theta = Math.PI * 3 - theta
+    if (triangularFunction == 'cos') {
+        if (thetaUnfixed < 0) theta = Math.PI * 2 - theta
+        else theta = - theta
     }
+    if (checkAngleBoundaries(theta)) return [theta, true]
     // Out of range
     return [theta, false]
 }
+*/
 
 function colorCenterRemapping(centers) {
-    const centersRemapped = new Array(centers.length)
+    let centersRemapped = []
+    let centersRemappedAgain = []
+    let lastCenterTheta = 0
+
+    const u_con = config.confusionLines[config.vision].u
+    const v_con = config.confusionLines[config.vision].v
+    const thetaPrimeV = config.angleBoundaries[config.vision].thetaPrimeV
+    const thetaPrime0 = config.angleBoundaries[config.vision].thetaPrime0
+    const thetaPrimeKadd1 = config.angleBoundaries[config.vision].thetaPrimeKadd1
+
+    if (config.debug) {
+        log(`Vision: <font color='yellow'>${config.vision}</font>`)
+        log("u_con: " + u_con)
+        log("v_con: " + v_con)
+        log("thetaPrimeV: " + thetaPrimeV)
+        log("thetaPrime0: " + thetaPrime0)
+        log("thetaPrimeKadd1: " + thetaPrimeKadd1)
+        log("m: " + config.m)
+    }
 
     centers.forEach(([u, v], index) => {
-        const u_con = config.confusionLines[config.vision].u
-        const v_con = config.confusionLines[config.vision].v
         const R = Math.sqrt((u - u_con) ** 2 + (v - v_con) ** 2)
+        /*
         const [thetaSin, sinRange] = angleFix(Math.asin((u - u_con) / R),'sin')
         const [thetaCos, cosRange] = angleFix(Math.acos((v - v_con) / R),'cos')
         let theta = thetaSin
-        if (Math.abs(thetaCos - thetaSin) > 0.1 && (!sinRange && !cosRange)) 
+        if (Math.abs(thetaCos - thetaSin) > 0.1 && (sinRange && cosRange)) 
             log(`<font color='pink'>Warning: theta calculated by asin and acos does not match up. <br>${thetaSin}, ${thetaCos}</font>`)
-        else if (sinRange && cosRange)
+        else if (!sinRange && !cosRange)
             log(`<font color='pink'>Warning: theta calculated by asin and acos both out of range? index: ${index}</font>`)
-        else if (sinRange) theta = thetaCos
-        else if (cosRange) theta = thetaSin
-        centersRemapped[index] = {r:R, theta:theta}
+        else if (!sinRange) theta = thetaCos
+        else if (!cosRange) theta = thetaSin
+        */
+        centersRemapped.push([R, Math.asin((u - u_con) / R)])
     })
-    
+
     centersRemapped.forEach((e, index) => {
-        const remappedCenter = [e.r, e.theta]
-        console.log(remappedCenter)
-        const thetaPrimeV = config.confusionLines[config.vision].thetaPrimeV
-        const thetaPrime0 = config.confusionLines[config.vision].thetaPrime0
-        const thetaPrimeKadd1 = config.confusionLines[config.vision].thetaPrimeKadd1
-        const thetaPrimeKsub1 = index == 0 ? thetaPrime0 : centersRemapped[index-1][1]
+        const remappedCenter = e
+        if (config.debug) {
+            log(`<font color='orange'>------- Center ${index} -------</font>`)
+            log("Original Center: " + remappedCenter)
+        }
+        const thetaPrimeKsub1 = index == 0 ? thetaPrime0 : lastCenterTheta
+        lastCenterTheta = e[1]
         const leftHandSide = config.vision == 'tritanopia' ?
             (thetaPrimeKadd1 + thetaPrimeKsub1) / 2
             :
@@ -200,22 +295,32 @@ function colorCenterRemapping(centers) {
                 Math.tan(thetaPrimeKadd1 - thetaPrimeV) +
                 Math.tan(thetaPrimeKsub1 - thetaPrimeV)
             ) + thetaPrimeV
-        const rightHandSide = e.theta + config.m
+        const rightHandSide = e[1] + config.m
         if (leftHandSide >= rightHandSide || leftHandSide <= rightHandSide) 
-            remappedCenter[1] = e.theta - config.m
+            remappedCenter[1] = e[1] - config.m
         else
             remappedCenter[1] = leftHandSide
-        centersRemapped[index] = remappedCenter
-    })
 
-    log(`Vision: <font color='yellow'>${config.vision}</font>`)
+        const uBack = u_con + remappedCenter[0] * Math.sin(remappedCenter[1])
+        const vBack = v_con + remappedCenter[0] * Math.cos(remappedCenter[1])
+        if (config.debug) {
+            log("thetaPrimeKsub1: " + thetaPrimeKsub1)
+            log("leftHandSide:  " + leftHandSide)
+            log("rightHandSide: " + rightHandSide)
+            log("Remapped Center: " + remappedCenter)
+            log("Remapped Centers in u'v': " + [uBack, vBack])
+        }
+        centersRemappedAgain.push([uBack, vBack])
+    })
     
-    return centersRemapped
+    return centersRemappedAgain
 }
 
 function outputImage(imageData, clusters, centers) {
     const data = imageData.data
     const output = new Uint8ClampedArray(data.length)
+
+    log("<font color='orange'>Centers all done!</font>")
  
     for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
@@ -242,5 +347,7 @@ function outputImage(imageData, clusters, centers) {
     if (output.indexOf(114.514) != -1)
         log(`<font color='pink'>Error: did not find the corresponding center! Please check data.</font>`)
     const newImageData = new ImageData(output, imageData.width, imageData.height);
+    outputImageData = newImageData
     outputContext.putImageData(newImageData, 0, 0);
+    refreshColorblindness()
 }

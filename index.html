@@ -4,6 +4,7 @@
     <title>Daltonization Algorithm</title>
     <script src="https://cdn.jsdelivr.net/npm/ac-colors@1/dist/ac-colors.min.js"></script>
     <script src="kmeans.js"></script>
+    <script src="machado_colorblind_simulation.js"></script>
     <style>
       body{
         background-color: rgb(63, 63, 63);
@@ -13,13 +14,62 @@
         margin: auto;
         font-size: 12px;
       }
+      input[type=checkbox], input[type=number], input[type=range], input[type=text], select{
+        background-color: rgb(63, 63, 63);
+        color: white;
+        border: 1px solid rgb(88, 88, 88);
+        margin: 3px;
+      }
+
+      input[type=file]{
+        margin: 7px;
+        color: white;
+      }
+
+      input[type=button]{
+        background-color: royalblue;
+        color: white;
+        border: 1px solid rgb(88, 88, 88);
+        margin: 3px;
+      }
+
+      input[type=button]:hover{
+        background-color: dodgerblue;
+      }
+
+      input[type=button]:active{
+        background-color: lightskyblue;
+      }
+      
     </style>
   </head>
   <body>
     <canvas id="inputCanvas"></canvas>
     <canvas id="outputCanvas"></canvas>
+    <br>
+    <canvas id="inputCanvasColorblind"></canvas>
+    <canvas id="outputCanvasColorblind"></canvas>
+    <br>
     <div class="info">
-      <input type="file" id="imageUpload" accept="image/*">
+      <form>
+        <select name="colorblind" id="vision">
+          <option value="protanopia" selected>Protanopia</option>
+          <option value="deuteranopia">Deuteranopia</option>
+          <option value="tritanopia">Tritanopia</option>
+        </select>
+        <br>
+        M * π: <input type="text" name="m" id="m">
+        <br>
+        kMeansClusterNum: <input type="text" name="kmeansClusterNum" id="kmeansClusterNum">
+        <br>
+        Debug: <input type="checkbox" name="debug" id="debug">
+        <br>
+        Severity: <input type="range" min="0" max="100" value="100" id="severity" name="severity">
+        <br>
+        <input type="file" id="imageUpload" accept="image/*">
+        <br>
+        <input type="button" value="Confirm" id="confirm">
+        </form>
       <div id="log"></div>
     </div>
     <script src="script.js"></script>
