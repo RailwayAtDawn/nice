@@ -188,7 +188,7 @@ function daltonization(imageData) {
 
 function rgbToLuv(r, g, b) {
     var luv = Color.xyzToLuv(Color.rgbToXyz([r, g, b]))
-	return luv;
+    return [luv[0], luv[1], luv[2]];
 }
 function luvToRgb(l, u, v) {
     var luv = Color.xyzToRgb(Color.luvToXyz([l, u, v]))
@@ -238,8 +238,6 @@ function performColorClustering(imageData) {
             rInformation[index].count += 1
             rInformation[index].Rmax = Math.max(rInformation[index].Rmax, R)
             rInformation[index].Rmin = Math.min(rInformation[index].Rmin, R)
-            if (rInformation[index].Rmax > 100) console.log(R, Ravg, count)
-            if (rInformation[index].Rmin < 0) console.log(R, Ravg, count)
         })
     })
     log(`Cluster numbers: <font color='yellow'>${config.kmeansClusterNum}</font>`)
