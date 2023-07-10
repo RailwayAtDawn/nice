@@ -299,7 +299,12 @@ function colorCenterRemapping(centers) {
         else if (!sinRange) theta = thetaCos
         else if (!cosRange) theta = thetaSin
         */
-        centersRemapped.push([R, Math.asin((u - u_con) / R)])
+        let theta
+        const thetaSin = Math.asin((u - u_con) / R)
+        const thetaCos = Math.acos((v - v_con) / R)
+        if (Math.abs(thetaCos) > Math.abs(thetaSin)) theta = thetaSin
+        else theta = thetaCos
+        centersRemapped.push([R, theta])
     })
 
     centersRemapped.forEach((e, index) => {
